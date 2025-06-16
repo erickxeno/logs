@@ -1,8 +1,0 @@
-Info 2025-06-16 19:46:07,946 logs/default_logger_test.go:8 127.0.0.1 - - -cluster- -stage- 0 test1
-Info 2025-06-16 19:46:07,946 logs/default_logger_test.go:12 127.0.0.1 - - -cluster- -stage- 0 test3
-Info 2025-06-16 19:46:07,946 logs/default_logger_test.go:14 127.0.0.1 - - -cluster- -stage- 0 test4
-Error 2025-06-16 19:46:07,946 logs/default_logger_test.go:16 127.0.0.1 - - -cluster- -stage- 0 test5
-Info 2025-06-16 19:46:27,190 logs/default_logger_test.go:8 127.0.0.1 - - -cluster- -stage- 0 test1
-Info 2025-06-16 19:47:33,896 logs/default_logger_test.go:8 127.0.0.1 - - -cluster- -stage- 0 test1
-Info 2025-06-16 19:47:45,897 logs/default_logger_test.go:8 127.0.0.1 - - -cluster- -stage- 0 test1
-Info 2025-06-16 19:48:17,884 logs/default_logger_test.go:8 127.0.0.1 - - -cluster- -stage- 0 test1, level: 2
