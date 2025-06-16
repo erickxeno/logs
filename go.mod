@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/bytedance/mockey v1.2.14
-	github.com/erickxeno/time v1.0.0
+	github.com/erickxeno/time v1.0.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/time v0.10.0
 )

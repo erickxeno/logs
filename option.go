@@ -273,3 +273,38 @@ func SetLogPrefixFileDepth(depth int) Option {
 		logger.logPrefixFileDepth = depth
 	}
 }
+
+// SetLogPrefixWithoutHost sets if the log prefix should include the host.
+func SetLogPrefixWithoutHost(withoutHost bool) Option {
+	return func(logger *CLogger) {
+		logger.logPrefixWithoutHost = withoutHost
+	}
+}
+
+// SetLogPrefixWithoutPSM sets if the log prefix should include the PSM.
+func SetLogPrefixWithoutPSM(withoutPSM bool) Option {
+	return func(logger *CLogger) {
+		logger.logPrefixWithoutPSM = withoutPSM
+	}
+}
+
+// SetLogPrefixWithoutCluster sets if the log prefix should include the cluster.
+func SetLogPrefixWithoutCluster(withoutCluster bool) Option {
+	return func(logger *CLogger) {
+		logger.logPrefixWithoutCluster = withoutCluster
+	}
+}
+
+// SetLogPrefixWithoutStage sets if the log prefix should include the stage.
+func SetLogPrefixWithoutStage(withoutStage bool) Option {
+	return func(logger *CLogger) {
+		logger.logPrefixWithoutStage = withoutStage
+	}
+}
+
+// SetLogPrefixWithoutSpanID sets if the log prefix should include the span ID.
+func SetLogPrefixWithoutSpanID(withoutSpanID bool) Option {
+	return func(logger *CLogger) {
+		logger.logPrefixWithoutSpanID = withoutSpanID
+	}
+}

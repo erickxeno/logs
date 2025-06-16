@@ -20,8 +20,13 @@ const (
 	DynamicLogLevelKey = contextKey("K_DYNAMIC_LOG_LEVEL")
 )
 
-func GetNewLogIDCtxKey(newKey string) contextKey {
-	return contextKey(newKey)
+var (
+	logIDCtxKey = LogIDCtxKey
+)
+
+func SetNewLogIDCtxKey(newKey string) contextKey {
+	logIDCtxKey = contextKey(newKey)
+	return logIDCtxKey
 }
 
 var (
@@ -172,7 +177,7 @@ func logIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return "-"
 	}
-	val := ctx.Value(LogIDCtxKey)
+	val := ctx.Value(logIDCtxKey)
 	if val != nil {
 		logID := val.(string)
 		return logID

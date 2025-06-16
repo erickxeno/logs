@@ -5,6 +5,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/erickxeno/time v1.0.0 h1:KpgAg3l0/+rx9vG2RMG9CzEHwWlbZgc6rqy7s7RIeWM=
 github.com/erickxeno/time v1.0.0/go.mod h1:W68AoOCfiGXCynw9/3iNgOaKdHg/qSEQR0K4B+3asO8=
+github.com/erickxeno/time v1.0.1 h1:CDxDxie/xcTEMqlOPZ8QUBdkkFC13t+AUK+1eJixFNU=
+github.com/erickxeno/time v1.0.1/go.mod h1:W68AoOCfiGXCynw9/3iNgOaKdHg/qSEQR0K4B+3asO8=
 github.com/gopherjs/gopherjs v1.17.2 h1:fQnZVsXk8uxXIStYb0N4bGk7jeyTalG/wsZjQ25dO0g=
 github.com/gopherjs/gopherjs v1.17.2/go.mod h1:pRRIvn/QzFLrKfvEz3qUuEhtE/zLCWfreZ6J5gM2i+k=
 github.com/jtolds/gls v4.20.0+incompatible h1:xdiiI2gbIgH/gLH7ADydsJ1uDOEzR8yvV7C0MuV77Wo=

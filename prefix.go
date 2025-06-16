@@ -67,13 +67,18 @@ func (l *prefixedLog) Location() *prefixedLog {
 			if ok {
 				if !(l.logger.fullPath || enableSecMark) {
 					if l.logger.logPrefixFileDepth > 0 {
-						base := filepath.Base(file)
-						dir := filepath.Dir(file)
-						for i := 1; i < l.logger.logPrefixFileDepth; i++ {
-							dir = filepath.Dir(dir)
+						parts := strings.Split(file, string(filepath.Separator))
+						base := parts[len(parts)-1]
+						if len(parts) > 1 {
+							start := len(parts) - 1 - l.logger.logPrefixFileDepth
+							if start < 0 {
+								start = 0
+							}
+							dirs := parts[start : len(parts)-1]
+							file = filepath.Join(append(dirs, base)...)
+						} else {
+							file = base
 						}
-						lastDir := filepath.Base(dir)
-						file = lastDir + string(filepath.Separator) + base
 					} else {
 						file = filepath.Base(file)
 					}
@@ -114,8 +119,10 @@ func (l *prefixedLog) Host() *prefixedLog {
 	if l == nil {
 		return nil
 	}
+	if l.logger.logPrefixWithoutHost {
+		return l
+	}
 	l.executors = append(l.executors, func(l *Log) {
-		//l.appendStrings(env.HostIP(), " ")
 		// TODO
 		l.appendStrings("127.0.0.1", " ")
 	})
@@ -125,6 +132,9 @@ func (l *prefixedLog) Host() *prefixedLog {
 func (l *prefixedLog) PSM(psm string) *prefixedLog {
 	if l == nil {
 		return nil
+	}
+	if l.logger.logPrefixWithoutPSM {
+		return l
 	}
 	l.psm = append(l.psm, psm...)
 	l.executors = append(l.executors, func(l *Log) {
@@ -148,6 +158,9 @@ func (l *prefixedLog) SpanID() *prefixedLog {
 	if l == nil {
 		return nil
 	}
+	if l.logger.logPrefixWithoutSpanID {
+		return l
+	}
 	l.executors = append(l.executors, func(l *Log) {
 		l.buf = strconv.AppendUint(l.buf, spanIDFromContext(l.ctx), 10)
 		l.buf = append(l.buf, ' ')
@@ -159,8 +172,10 @@ func (l *prefixedLog) Cluster() *prefixedLog {
 	if l == nil {
 		return nil
 	}
+	if l.logger.logPrefixWithoutCluster {
+		return l
+	}
 	l.executors = append(l.executors, func(l *Log) {
-		//l.appendStrings(env.Cluster(), " ")
 		// TODO
 		l.appendStrings("-cluster-", " ")
 	})
@@ -171,8 +186,10 @@ func (l *prefixedLog) Stage() *prefixedLog {
 	if l == nil {
 		return nil
 	}
+	if l.logger.logPrefixWithoutStage {
+		return l
+	}
 	l.executors = append(l.executors, func(l *Log) {
-		//l.appendStrings(env.Stage(), " ")
 		// TODO
 		l.appendStrings("-stage-", " ")
 	})

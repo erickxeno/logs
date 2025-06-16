@@ -12,6 +12,7 @@ type leveledWriter struct {
 	writer.LogWriter
 	MinLevel Level
 }
+
 type logger struct {
 	writers                  []leveledWriter
 	middlewares              []Middleware
@@ -30,6 +31,11 @@ type logger struct {
 	addEnv                   bool
 	compatLoggerDynamicLevel bool
 	logPrefixFileDepth       int // Controls how many directory levels to include in file path
+	logPrefixWithoutHost     bool
+	logPrefixWithoutPSM      bool
+	logPrefixWithoutCluster  bool
+	logPrefixWithoutStage    bool
+	logPrefixWithoutSpanID   bool
 
 	rateLimiters  writer.RateLimiters
 	countLimiters writer.RateLimiters

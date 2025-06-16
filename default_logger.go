@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/erickxeno/logs/writer"
+	"github.com/erickxeno/time"
 )
 
 var (
@@ -44,10 +45,6 @@ func getCurDir() string {
 	return dir
 }
 
-func SetDefaultLogPrefixFileDepth(depth int) {
-	defaultLogger.v1.logPrefixFileDepth = depth
-}
-
 func Init() {
 	// TODO: NewAgentWriter relies on init function, refactor agent SDK and supports be defined as variable
 	writers := make([]writer.LogWriter, 0)
@@ -66,63 +63,8 @@ func Init() {
 		writers = append(writers, writer.NewConsoleWriter(writer.SetColorful(true)))
 	}
 	ops = append(ops, SetWriter(level, writers...))
-	ops = append(ops, SetLogPrefixFileDepth(1))
 	V1 = NewCLogger(ops...)
 	defaultLogger = NewCompatLoggerFrom(V1, WithCallDepthOffset(2))
-}
-
-// SetDefaultLogger resets the default logger with specified options,
-// it is not thread-safe and please only call it in program initialization.
-// Libraries should not config the default logger and leaves it to the application user,
-// otherwise loggers would cover each other.
-func SetDefaultLogger(ops ...Option) {
-	curOps := V1.GetOptions()
-	curOps = append(curOps, ops...)
-	*V1 = *NewCLogger(curOps...)
-	*defaultLogger = *NewCompatLoggerFrom(V1, WithCallDepthOffset(2))
-}
-
-// SetLevel sets the minimal level for defaultLogger and all writers. It is safe to increase the level.
-func SetLevel(newLevel Level) {
-	if defaultLogger == nil {
-		return
-	}
-	writers := GetWriters()
-	logWriters := make([]writer.LogWriter, 0)
-	for _, writer := range writers {
-		logWriters = append(logWriters, writer.LogWriter)
-	}
-	defaultLogger.v1.SetLevelForWriters(newLevel, logWriters...)
-	defaultLogger.v1.SetLevel(newLevel)
-}
-
-func GetLevel() Level {
-	if defaultLogger == nil {
-		return DebugLevel
-	}
-	return defaultLogger.v1.GetLevel()
-}
-
-// SetLevelForWriters updates the minimal level for the writer of the defaultLogger.
-// It may also update the loggers' level.
-func SetLevelForWriters(newLevel Level, logWriters ...writer.LogWriter) {
-	if defaultLogger == nil {
-		return
-	}
-	defaultLogger.v1.SetLevelForWriters(newLevel, logWriters...)
-}
-
-// GetWriters returns the level writers
-func GetWriters() []leveledWriter {
-	if defaultLogger == nil {
-		return nil
-	}
-	return defaultLogger.v1.GetWriter()
-}
-
-// EnableDynamicLogLevel enableds dynamic context log level for compatibleLogger.
-func EnableDynamicLogLevel() {
-	WithDynamicLevel(true)(defaultLogger)
 }
 
 // Fatal works like logs.Fatal.
@@ -328,6 +270,60 @@ func Stop() {
 	defaultLogger.Close()
 }
 
+// GetWriters returns the level writers
+func GetWriters() []leveledWriter {
+	if defaultLogger == nil {
+		return nil
+	}
+	return defaultLogger.v1.GetWriter()
+}
+
+// EnableDynamicLogLevel enableds dynamic context log level for compatibleLogger.
+func EnableDynamicLogLevel() {
+	WithDynamicLevel(true)(defaultLogger)
+}
+
+// SetDefaultLogger resets the default logger with specified options,
+// it is not thread-safe and please only call it in program initialization.
+// Libraries should not config the default logger and leaves it to the application user,
+// otherwise loggers would cover each other.
+func SetDefaultLogger(ops ...Option) {
+	curOps := V1.GetOptions()
+	curOps = append(curOps, ops...)
+	*V1 = *NewCLogger(curOps...)
+	*defaultLogger = *NewCompatLoggerFrom(V1, WithCallDepthOffset(2))
+}
+
+// SetLevel sets the minimal level for defaultLogger and all writers. It is safe to increase the level.
+func SetLevel(newLevel Level) {
+	if defaultLogger == nil {
+		return
+	}
+	writers := GetWriters()
+	logWriters := make([]writer.LogWriter, 0)
+	for _, writer := range writers {
+		logWriters = append(logWriters, writer.LogWriter)
+	}
+	defaultLogger.v1.SetLevelForWriters(newLevel, logWriters...)
+	defaultLogger.v1.SetLevel(newLevel)
+}
+
+func GetLevel() Level {
+	if defaultLogger == nil {
+		return DebugLevel
+	}
+	return defaultLogger.v1.GetLevel()
+}
+
+// SetLevelForWriters updates the minimal level for the writer of the defaultLogger.
+// It may also update the loggers' level.
+func SetLevelForWriters(newLevel Level, logWriters ...writer.LogWriter) {
+	if defaultLogger == nil {
+		return
+	}
+	defaultLogger.v1.SetLevelForWriters(newLevel, logWriters...)
+}
+
 // AddCallDepth temporarily increases the call stack depth of the current logger to get the correct caller location.
 // Remember to call ResetCallDepth() after use.
 func AddCallDepth(depth int) {
@@ -344,4 +340,42 @@ func ResetCallDepth() {
 func SetDefaultLogCallDepthOffset(offset int) {
 	defaultLogCallDepthOffset += offset
 	ResetCallDepth()
+}
+
+func SetDefaultLogPrefixFileDepth(depth int) {
+	defaultLogger.v1.logPrefixFileDepth = depth
+}
+
+type TimePrecision = time.TimePrecision
+
+const (
+	TimePrecisionSecond      = time.TimePrecisionSecond
+	TimePrecisionMillisecond = time.TimePrecisionMillisecond
+	TimePrecisionMicrosecond = time.TimePrecisionMicrosecond
+)
+
+// SetLogPrefixTimePrecision sets the time precision for the log prefix.
+// It affects all loggers, including the default logger.
+func SetLogPrefixTimePrecision(precision TimePrecision) {
+	time.SetTimePrecision(time.TimePrecision(precision))
+}
+
+func SetDefaultLogPrefixWithoutHost(withoutHost bool) {
+	defaultLogger.v1.logPrefixWithoutHost = withoutHost
+}
+
+func SetDefaultLogPrefixWithoutPSM(withoutPSM bool) {
+	defaultLogger.v1.logPrefixWithoutPSM = withoutPSM
+}
+
+func SetDefaultLogPrefixWithoutCluster(withoutCluster bool) {
+	defaultLogger.v1.logPrefixWithoutCluster = withoutCluster
+}
+
+func SetDefaultLogPrefixWithoutStage(withoutStage bool) {
+	defaultLogger.v1.logPrefixWithoutStage = withoutStage
+}
+
+func SetDefaultLogPrefixWithoutSpanID(withoutSpanID bool) {
+	defaultLogger.v1.logPrefixWithoutSpanID = withoutSpanID
 }
