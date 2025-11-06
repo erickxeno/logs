@@ -14,6 +14,11 @@ import (
 	w "github.com/erickxeno/logs/writer"
 )
 
+// isRaceEnabled returns true if the race detector is enabled
+func isRaceEnabled() bool {
+	return raceEnabled
+}
+
 // Test for KV operation memory allocation optimization (issue #1)
 func TestKVOperationOptimization(t *testing.T) {
 	t.Run("PreallocatedKVList", func(t *testing.T) {
@@ -323,7 +328,10 @@ func TestPerformanceNoRegression(t *testing.T) {
 
 		// Should be under 10,000ns (10µs) per operation in test environment
 		// This is a sanity check, not a strict performance requirement
-		assert.Less(t, nsPerOp, int64(10000), "simple logging should complete within reasonable time")
+		// Skip assertion when race detector is enabled (slows down by 5-10x)
+		if !isRaceEnabled() {
+			assert.Less(t, nsPerOp, int64(10000), "simple logging should complete within reasonable time")
+		}
 		t.Logf("Simple logging: %d ns/op", nsPerOp)
 	})
 
@@ -347,7 +355,10 @@ func TestPerformanceNoRegression(t *testing.T) {
 
 		// Should be under 20,000ns (20µs) per operation in test environment
 		// This is a sanity check, not a strict performance requirement
-		assert.Less(t, nsPerOp, int64(20000), "KV logging should complete within reasonable time")
+		// Skip assertion when race detector is enabled (slows down by 5-10x)
+		if !isRaceEnabled() {
+			assert.Less(t, nsPerOp, int64(20000), "KV logging should complete within reasonable time")
+		}
 		t.Logf("KV logging: %d ns/op", nsPerOp)
 	})
 }
