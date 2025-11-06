@@ -238,32 +238,38 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 	atomic.StoreInt64(&kv.refCount, 1)
 	kv.isLong = true
 
-	switch v := key.(type) {
-	case string:
-		kv.Key = v
-	case fmt.Stringer:
-		vp := reflect.ValueOf(key)
-		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
-			kv.Key = fmt.Sprintf("%#v", key)
-		} else {
-			kv.Key = v.String()
+	// Fast path for string key (most common case)
+	if keyStr, ok := key.(string); ok {
+		kv.Key = keyStr
+	} else {
+		// Slow path for non-string keys
+		switch v := key.(type) {
+		case fmt.Stringer:
+			vp := reflect.ValueOf(key)
+			if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
+				kv.Key = fmt.Sprintf("%#v", key)
+			} else {
+				kv.Key = v.String()
+			}
+		default:
+			byteBuf := make([]byte, 0, 32)
+			tmpBuf := (*jsonBuf)(unsafe.Pointer(&byteBuf))
+			e := json.NewEncoder(tmpBuf)
+			e.SetEscapeHTML(false)
+			err := e.Encode(v)
+			if err != nil {
+				kv.Key = fmt.Sprintf("%#v", v)
+			} else {
+				kv.Key = string(byteBuf[:len(byteBuf)-1])
+			}
 		}
-	default:
-		byteBuf := make([]byte, 0, 32)
-		tmpBuf := (*jsonBuf)(unsafe.Pointer(&byteBuf))
-		e := json.NewEncoder(tmpBuf)
-		e.SetEscapeHTML(false)
-		err := e.Encode(v)
-		if err != nil {
-			kv.Key = fmt.Sprintf("%#v", v)
-		}
-		kv.Key = string(byteBuf[:len(byteBuf)-1])
 	}
 
 	if len(kv.Key) > SHORT_STRING_MAX_LEN {
 		kv.Key = kv.Key[:SHORT_STRING_MAX_LEN]
 	}
 
+	// Fast paths for common value types
 	switch v := value.(type) {
 	case string:
 		kv.Value = append(kv.Value, v...)
@@ -271,17 +277,40 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 		if len(kv.Value) > math.MaxUint8 {
 			kv.ValueType = TextType
 		}
-	case fmt.Stringer:
-		vp := reflect.ValueOf(value)
-		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
-			kv.Value = append(kv.Value, fmt.Sprintf("%#v", value)...)
+	case int:
+		kv.ValueType = LongType
+		kv.Value = EncodeUint64(kv.Value, uint64(v))
+	case int64:
+		kv.ValueType = LongType
+		kv.Value = EncodeUint64(kv.Value, uint64(v))
+	case int32:
+		kv.ValueType = IntType
+		kv.Value = EncodeUint32(kv.Value, uint32(v))
+	case bool:
+		kv.ValueType = BoolType
+		if v {
+			kv.Value = EncodeUint8(kv.Value, 1)
 		} else {
-			kv.Value = append(kv.Value, v.String()...)
+			kv.Value = EncodeUint8(kv.Value, 0)
 		}
-		kv.ValueType = StringType
-		if len(kv.Value) > math.MaxUint8 {
-			kv.ValueType = TextType
-		}
+	case uint64:
+		kv.ValueType = Uint64Type
+		kv.Value = EncodeUint64(kv.Value, v)
+	case uint32:
+		kv.ValueType = Uint64Type
+		kv.Value = EncodeUint64(kv.Value, uint64(v))
+	case uint:
+		kv.ValueType = Uint64Type
+		kv.Value = EncodeUint64(kv.Value, uint64(v))
+	case float64:
+		kv.ValueType = DoubleType
+		kv.Value = EncodeUint64(kv.Value, math.Float64bits(v))
+	case float32:
+		kv.ValueType = DoubleType
+		kv.Value = EncodeUint64(kv.Value, math.Float64bits(float64(v)))
+	case []byte:
+		kv.ValueType = BytesType
+		kv.Value = append(kv.Value, v...)
 	case error:
 		valueErr := reflect.ValueOf(value)
 		kv.ValueType = StringType
@@ -293,20 +322,10 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 		if len(kv.Value) > math.MaxUint8 {
 			kv.ValueType = TextType
 		}
-	case bool:
-		kv.ValueType = BoolType
-		if v {
-			kv.Value = EncodeUint8(kv.Value, 1)
-		} else {
-			kv.Value = EncodeUint8(kv.Value, 0)
-		}
 	case int8:
 		kv.ValueType = IntType
 		kv.Value = EncodeUint32(kv.Value, uint32(v))
 	case int16:
-		kv.ValueType = IntType
-		kv.Value = EncodeUint32(kv.Value, uint32(v))
-	case int32:
 		kv.ValueType = IntType
 		kv.Value = EncodeUint32(kv.Value, uint32(v))
 	case uint8:
@@ -315,30 +334,17 @@ func NewOmniKeyValue(key, value interface{}) *KeyValue {
 	case uint16:
 		kv.ValueType = IntType
 		kv.Value = EncodeUint32(kv.Value, uint32(v))
-	case int:
-		kv.ValueType = LongType
-		kv.Value = EncodeUint64(kv.Value, uint64(v))
-	case int64:
-		kv.ValueType = LongType
-		kv.Value = EncodeUint64(kv.Value, uint64(v))
-	case uint32:
-		kv.ValueType = Uint64Type
-		kv.Value = EncodeUint64(kv.Value, uint64(v))
-	case uint:
-		kv.ValueType = Uint64Type
-		kv.Value = EncodeUint64(kv.Value, uint64(v))
-	case uint64:
-		kv.ValueType = Uint64Type
-		kv.Value = EncodeUint64(kv.Value, v)
-	case float32:
-		kv.ValueType = DoubleType
-		kv.Value = EncodeUint64(kv.Value, math.Float64bits(float64(v)))
-	case float64:
-		kv.ValueType = DoubleType
-		kv.Value = EncodeUint64(kv.Value, math.Float64bits(v))
-	case []byte:
-		kv.ValueType = BytesType
-		kv.Value = append(kv.Value, v...)
+	case fmt.Stringer:
+		vp := reflect.ValueOf(value)
+		if !vp.IsValid() || vp.Kind() == reflect.Ptr && vp.IsNil() {
+			kv.Value = append(kv.Value, fmt.Sprintf("%#v", value)...)
+		} else {
+			kv.Value = append(kv.Value, v.String()...)
+		}
+		kv.ValueType = StringType
+		if len(kv.Value) > math.MaxUint8 {
+			kv.ValueType = TextType
+		}
 	default:
 		kv.ValueType = StringType
 		byteBuf := make([]byte, 0, 32)
@@ -381,7 +387,7 @@ var keyValuePool = &sync.Pool{
 	New: func() interface{} {
 		return &KeyValue{
 			Key:       "",
-			Value:     make([]byte, 0, 16),
+			Value:     make([]byte, 0, 32), // Increased from 16 to 32 to reduce reallocation for common values
 			ValueType: 0,
 			isLong:    false,
 			refCount:  0,
