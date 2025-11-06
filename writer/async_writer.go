@@ -9,7 +9,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const closeTimeout = osTime.Second
+const (
+	closeTimeout           = osTime.Second
+	defaultAsyncBufferSize = 4096 // Increased from 1024 to 4096 for better high-throughput scenarios
+)
 
 // AsyncWriter provides a asynchronous wrapper to another writer,
 // it is useful to wrap another blocking writer like FileWriter,
@@ -24,26 +27,24 @@ type AsyncWriter struct {
 	errorPrint *rate.Limiter
 }
 
-// NewAsyncWriter creates a AsyncWriter,
-// omit allows AsyncWriter omits the log if the buffer is full or not.
+// NewAsyncWriter creates a AsyncWriter with default buffer size (4096).
+// For high-throughput scenarios, consider using NewAsyncWriterWithChanLen with a larger buffer.
+// omit allows AsyncWriter to drop logs if the buffer is full (non-blocking mode).
+// If omit is false, Write() will block when the buffer is full.
 func NewAsyncWriter(w LogWriter, omit bool) LogWriter {
-	asyncWriter := &AsyncWriter{
-		LogWriter:  w,
-		done:       &sync.WaitGroup{},
-		ch:         make(chan RecyclableLog, 1024),
-		flush:      make(chan bool),
-		flushed:    make(chan error),
-		omit:       omit,
-		errorPrint: rate.NewLimiter(rate.Every(osTime.Second), 1),
-	}
-	go asyncWriter.runWorker()
-	return asyncWriter
+	return NewAsyncWriterWithChanLen(w, defaultAsyncBufferSize, omit)
 }
 
-// NewAsyncWriterWithChanLen creates a AsyncWriter,
-// chanLen is the length of ch,
-// omit allows AsyncWriter omits the log if the buffer is full or not.
+// NewAsyncWriterWithChanLen creates a AsyncWriter with custom buffer size.
+// chanSize is the buffer size of the internal channel. Choose based on your throughput:
+//   - Low throughput (< 1000 logs/s): 1024
+//   - Medium throughput (1000-10000 logs/s): 4096 (default)
+//   - High throughput (> 10000 logs/s): 8192 or higher
+// omit allows AsyncWriter to drop logs if the buffer is full (non-blocking mode).
 func NewAsyncWriterWithChanLen(w LogWriter, chanSize int, omit bool) LogWriter {
+	if chanSize <= 0 {
+		chanSize = defaultAsyncBufferSize
+	}
 	asyncWriter := &AsyncWriter{
 		LogWriter:  w,
 		done:       &sync.WaitGroup{},

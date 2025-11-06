@@ -110,9 +110,9 @@ var logPool = &sync.Pool{
 			bodyBuf:         make([]byte, 0, 512),
 			loc:             make([]byte, 0, 256),
 			padding:         make([]byte, 4),
-			executors:       make([]func(l *Log), 0, 128),
+			executors:       make([]func(l *Log), 0, 8), // Reduced from 128 to 8 - typical logs have 3-5 executors (Time, Level, Location, PSM, LogID)
 			psm:             make([]byte, 0, 16),
-			kvlist:          make([]*writer.KeyValue, 0, 2),
+			kvlist:          make([]*writer.KeyValue, 0, 8), // Increased from 2 to 8 to reduce reallocation
 			callDepthOffset: 0,
 		}
 	},

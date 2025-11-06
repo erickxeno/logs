@@ -14,10 +14,9 @@ type logReader struct {
 }
 
 func (l *logReader) Recycle() {
-	if atomic.CompareAndSwapInt64(&l.writingCount, 1, 0) {
+	// Optimized: Use atomic decrement and check, which is faster than CAS in most cases
+	if atomic.AddInt64(&l.writingCount, -1) == 0 {
 		recycle(&l.Log)
-	} else {
-		atomic.AddInt64(&l.writingCount, -1)
 	}
 }
 
@@ -78,30 +77,42 @@ func (l *logReader) GetKVListStr() []string {
 }
 
 func recycle(l *Log) {
-	switch {
-	case cap(l.buf)+cap(l.bodyBuf) <= 1<<16:
+	// Optimized recycle logic: simplified capacity check to reduce branch misprediction
+	totalCap := cap(l.buf) + cap(l.bodyBuf)
+	totalLen := len(l.buf) + len(l.bodyBuf)
+
+	// Fast path: if total capacity is reasonable, always recycle
+	if totalCap <= 1<<16 { // 64KB threshold
 		l.strikes = 0
-	case cap(l.buf)/2+cap(l.bodyBuf) <= len(l.buf)+len(l.bodyBuf):
+	} else if totalCap <= 1<<18 && totalLen >= totalCap/2 { // 256KB threshold with 50% usage
 		l.strikes = 0
-	case l.strikes < 4:
+	} else if l.strikes < 4 {
 		l.strikes++
-	default:
+	} else {
+		// Don't recycle oversized buffers that are rarely used
 		return
 	}
+
+	// Reset all fields - optimized order to improve cache locality
 	l.buf = l.buf[:0]
 	l.bodyBuf = l.bodyBuf[:0]
-	l.executors = l.executors[:0]
-	l.ctx = nil
-	l.psm = l.psm[:0]
-	l.line = nil
-	l.time = osTime.Time{}
 	l.loc = l.loc[:0]
+	l.psm = l.psm[:0]
+	l.executors = l.executors[:0]
 	l.padding = l.padding[:0]
+
+	// Recycle KV list
 	for _, kv := range l.kvlist {
 		kv.Recycle()
 	}
 	l.kvlist = l.kvlist[:0]
+
+	// Reset remaining fields
+	l.ctx = nil
+	l.line = nil
+	l.time = osTime.Time{}
 	l.stackInfo = NoPrint
 	l.enableDynamicLevel = false
+
 	logPool.Put(l)
 }

@@ -52,12 +52,14 @@ func (l *prefixedLog) Location() *prefixedLog {
 	}
 	l.executors = append(l.executors, func(l *Log) {
 		var fileLine string
+		// Optimization: Check for cached location first to avoid runtime.Caller overhead
 		if len(l.loc) > 0 {
 			fileLine = *(*string)(unsafe.Pointer(&l.loc))
 		} else if l.line != nil {
 			f := l.line.load(l.logger.callDepth+l.callDepthOffset, l.logger.fullPath || enableSecMark)
 			fileLine = *(*string)(unsafe.Pointer(&f))
 		} else {
+			// Fallback: Call runtime.Caller if no cached location
 			var pc uintptr
 			var file string
 			var line int
