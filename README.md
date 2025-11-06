@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/erickxeno/logs/branch/master/graph/badge.svg)](https://codecov.io/gh/erickxeno/logs)
+
 # Xeno Logs
 
 ## English Version
