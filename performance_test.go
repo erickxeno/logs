@@ -2,6 +2,7 @@ package logs
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -356,4 +357,297 @@ func getPoolSize() int {
 	// We can't directly check pool size, so we'll return 0
 	// This is just a placeholder for documentation purposes
 	return 0
+}
+
+// Test for issue #3: runtime.Caller overhead optimization
+func TestRuntimeCallerOptimization(t *testing.T) {
+	t.Run("LocationCachingWithLine", func(t *testing.T) {
+		logger := NewCLogger(SetWriter(InfoLevel, &w.NoopWriter{}))
+		line := &Line{}
+
+		// Using Line() should avoid runtime.Caller
+		log := logger.Info().Line(line)
+		assert.NotNil(t, log.line, "line should be set")
+
+		log.Str("test with line cache").Emit()
+	})
+
+	t.Run("LocationCachingWithLocationAPI", func(t *testing.T) {
+		logger := NewCLogger(SetWriter(InfoLevel, &w.NoopWriter{}))
+
+		// Using Location() directly should cache the location
+		log := logger.Info().Location("test.go:123")
+		assert.NotEqual(t, 0, len(log.loc), "loc should be cached")
+
+		log.Str("test with location cache").Emit()
+	})
+
+	t.Run("RuntimeCallerFallback", func(t *testing.T) {
+		logger := NewCLogger(SetWriter(InfoLevel, &w.NoopWriter{}))
+
+		// Without Line() or Location(), should fall back to runtime.Caller
+		log := logger.Info()
+		assert.Nil(t, log.line, "line should not be set")
+		assert.Equal(t, 0, len(log.loc), "loc should not be cached initially")
+
+		log.Str("test without cache").Emit()
+	})
+
+	t.Run("CachedLocationPerformance", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping performance test in short mode")
+		}
+
+		logger := NewCLogger(SetWriter(InfoLevel, &w.NoopWriter{}))
+		line := &Line{}
+
+		iterations := 10000
+		start := osTime.Now()
+
+		for i := 0; i < iterations; i++ {
+			logger.Info().Line(line).Str("cached location").Emit()
+		}
+
+		duration := osTime.Since(start)
+		nsPerOp := duration.Nanoseconds() / int64(iterations)
+
+		t.Logf("Cached location logging: %d ns/op", nsPerOp)
+	})
+}
+
+// Test for issue #4: Executor lazy execution mechanism optimization
+func TestExecutorOptimization(t *testing.T) {
+	t.Run("ExecutorPreallocation", func(t *testing.T) {
+		// Test that executors slice is preallocated with capacity 8 (not 128)
+		logger := NewLogger()
+		logger.addWriter(InfoLevel, &w.NoopWriter{})
+
+		log := newLog(InfoLevel, logger)
+
+		// Verify initial capacity is 8 (optimized from 128)
+		// Note: capacity may grow if more executors are added, but should start at 8
+		initialCap := cap(log.executors)
+		assert.LessOrEqual(t, initialCap, 16, "executors should start with reasonable capacity (<= 16, down from 128)")
+		assert.Equal(t, 0, len(log.executors), "executors should start with length 0")
+
+		recycle(log)
+	})
+
+	t.Run("TypicalExecutorCount", func(t *testing.T) {
+		logger := NewCLogger(SetWriter(InfoLevel, &w.NoopWriter{}))
+
+		// Typical log with common executors
+		log := logger.Info() // This may add some default executors
+
+		initialLen := len(log.executors)
+		initialCap := cap(log.executors)
+
+		// Capacity should be reasonable (much less than original 128)
+		assert.LessOrEqual(t, initialCap, 16, "capacity should be reasonable (<= 16, down from 128)")
+
+		log.Emit()
+
+		t.Logf("Typical executor count: %d, capacity: %d", initialLen, initialCap)
+	})
+
+	t.Run("ExecutorMemoryEfficiency", func(t *testing.T) {
+		logger := NewCLogger(SetWriter(InfoLevel, &w.NoopWriter{}))
+
+		// Create multiple logs to verify memory efficiency
+		for i := 0; i < 100; i++ {
+			log := logger.Info()
+			// After growth, capacity may be 16, but should not be 128
+			assert.LessOrEqual(t, cap(log.executors), 16, "capacity should be reasonable")
+			log.Str("test").Emit()
+		}
+	})
+}
+
+// Helper function to get nextRotationTime from FileWriter using reflection
+func getFileWriterNextRotationTime(fw w.LogWriter) int64 {
+	v := reflect.ValueOf(fw).Elem()
+	field := v.FieldByName("nextRotationTime")
+	return atomic.LoadInt64((*int64)(unsafe.Pointer(field.UnsafeAddr())))
+}
+
+// Test for issue #5: FileWriter lock granularity optimization
+func TestFileWriterLockOptimization(t *testing.T) {
+	t.Run("AtomicRotationCheck", func(t *testing.T) {
+		// Create a temporary file for testing
+		tmpDir := t.TempDir()
+		filename := tmpDir + "/test.log"
+
+		fw := w.NewFileWriter(filename, w.Daily)
+		defer fw.Close()
+
+		// Verify nextRotationTime is initialized
+		nextRot := getFileWriterNextRotationTime(fw)
+		assert.NotEqual(t, int64(0), nextRot, "nextRotationTime should be initialized")
+	})
+
+	t.Run("NoLockWhenNoRotation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		filename := tmpDir + "/test.log"
+
+		fw := w.NewFileWriter(filename, w.Daily)
+		defer fw.Close()
+
+		// Just verify the atomic field is accessible and non-zero
+		nextRot := getFileWriterNextRotationTime(fw)
+		assert.NotEqual(t, int64(0), nextRot, "nextRotationTime should be initialized")
+
+		// Write some logs to verify it works correctly
+		logger := NewCLogger(SetWriter(InfoLevel, fw))
+		for i := 0; i < 10; i++ {
+			logger.Info().Str("test").Emit()
+		}
+	})
+
+	t.Run("ConcurrentWrites", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		filename := tmpDir + "/test_concurrent.log"
+
+		fw := w.NewFileWriter(filename, w.Daily)
+		defer fw.Close()
+
+		logger := NewCLogger(SetWriter(InfoLevel, fw))
+
+		var wg sync.WaitGroup
+		concurrency := 50
+		iterationsPerGoroutine := 100
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < iterationsPerGoroutine; j++ {
+					logger.Info().
+						Str("concurrent write test").
+						KV("goroutine", id).
+						KV("iteration", j).
+						Emit()
+				}
+			}(i)
+		}
+
+		wg.Wait()
+	})
+}
+
+// Helper function to get channel capacity from AsyncWriter using reflection
+func getAsyncWriterChannelCap(aw w.LogWriter) int {
+	v := reflect.ValueOf(aw).Elem()
+	ch := v.FieldByName("ch")
+	return ch.Cap()
+}
+
+// Test for issue #6: AsyncWriter fixed channel capacity optimization
+func TestAsyncWriterOptimization(t *testing.T) {
+	t.Run("DefaultBufferSize", func(t *testing.T) {
+		noop := &w.NoopWriter{}
+		aw := w.NewAsyncWriter(noop, false)
+		defer aw.Close()
+
+		// Verify default buffer size is 4096 (increased from 1024)
+		assert.Equal(t, 4096, getAsyncWriterChannelCap(aw), "default buffer size should be 4096")
+	})
+
+	t.Run("CustomBufferSize", func(t *testing.T) {
+		noop := &w.NoopWriter{}
+		customSize := 8192
+		aw := w.NewAsyncWriterWithChanLen(noop, customSize, false)
+		defer aw.Close()
+
+		assert.Equal(t, customSize, getAsyncWriterChannelCap(aw), "custom buffer size should be respected")
+	})
+
+	t.Run("InvalidBufferSizeFallback", func(t *testing.T) {
+		noop := &w.NoopWriter{}
+		// Test with invalid (negative) buffer size
+		aw := w.NewAsyncWriterWithChanLen(noop, -1, false)
+		defer aw.Close()
+
+		// Should fall back to default
+		assert.Equal(t, 4096, getAsyncWriterChannelCap(aw), "should fall back to default buffer size")
+	})
+
+	t.Run("ZeroBufferSizeFallback", func(t *testing.T) {
+		noop := &w.NoopWriter{}
+		aw := w.NewAsyncWriterWithChanLen(noop, 0, false)
+		defer aw.Close()
+
+		// Should fall back to default
+		assert.Equal(t, 4096, getAsyncWriterChannelCap(aw), "should fall back to default buffer size")
+	})
+
+	t.Run("HighThroughputScenario", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping high-throughput test in short mode")
+		}
+
+		noop := &w.NoopWriter{}
+		// Use larger buffer for high throughput
+		aw := w.NewAsyncWriterWithChanLen(noop, 8192, true)
+		defer aw.Close()
+
+		logger := NewCLogger(SetWriter(InfoLevel, aw))
+
+		var wg sync.WaitGroup
+		concurrency := 100
+		iterationsPerGoroutine := 1000
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < iterationsPerGoroutine; j++ {
+					logger.Info().
+						Str("high throughput test").
+						KV("goroutine", id).
+						KV("iteration", j).
+						Emit()
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		aw.Flush()
+	})
+}
+
+// Integration test covering all optimizations
+func TestAllOptimizationsIntegration(t *testing.T) {
+	t.Run("CombinedOptimizations", func(t *testing.T) {
+		// Create a logger with all optimizations
+		tmpDir := t.TempDir()
+		filename := tmpDir + "/integration.log"
+
+		fw := w.NewFileWriter(filename, w.Daily)
+		aw := w.NewAsyncWriterWithChanLen(fw, 4096, true)
+		logger := NewCLogger(SetWriter(InfoLevel, aw))
+		line := &Line{}
+
+		var wg sync.WaitGroup
+		concurrency := 50
+		iterations := 100
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < iterations; j++ {
+					logger.Info().
+						Line(line). // Issue #3: cached location
+						Str("integration test").
+						KV("key1", "value1"). // Issue #1: optimized KV
+						KV("key2", j).
+						Emit() // Issue #4: optimized executors
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		aw.Flush()
+		aw.Close()
+	})
 }

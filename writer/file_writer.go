@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	osTime "time"
 )
 
@@ -30,6 +31,9 @@ type FileWriter struct {
 	fileCountLimit int
 
 	currentTimeSeg osTime.Time
+	// Store the next rotation time as Unix timestamp (int64) for atomic access
+	// This allows us to check if rotation is needed without locking
+	nextRotationTime int64 // atomic
 	sync.RWMutex
 }
 
@@ -43,6 +47,8 @@ func NewFileWriter(filename string, window RotationWindow, options ...FileOption
 		panic(err)
 	}
 	w.file = newRotatedFile(file)
+	// Initialize nextRotationTime based on rotation window
+	w.updateNextRotationTime(w.currentTimeSeg)
 	for _, op := range options {
 		op(w)
 	}
@@ -96,6 +102,8 @@ func (w *FileWriter) checkIfNeedRotate(logTime osTime.Time) error {
 		if err := w.rotate(); err != nil {
 			return err
 		}
+		// Update next rotation time after successful rotation
+		w.updateNextRotationTime(w.currentTimeSeg)
 	}
 	return nil
 }
@@ -132,15 +140,50 @@ func (w *FileWriter) rotate() error {
 	return nil
 }
 
+// updateNextRotationTime calculates and stores the next rotation time atomically
+func (w *FileWriter) updateNextRotationTime(currentTime osTime.Time) {
+	var nextTime osTime.Time
+	switch w.rotationWindow {
+	case Daily:
+		// Next rotation at midnight
+		nextTime = currentTime.Truncate(24 * osTime.Hour).Add(24 * osTime.Hour)
+	case Hourly:
+		// Next rotation at next hour
+		nextTime = currentTime.Truncate(osTime.Hour).Add(osTime.Hour)
+	}
+	// Store as Unix timestamp for atomic access
+	atomic.StoreInt64(&w.nextRotationTime, nextTime.Unix())
+}
+
+// needsRotation checks if rotation is needed using atomic operation (lock-free fast path)
+func (w *FileWriter) needsRotation(logTime osTime.Time) bool {
+	nextRotation := atomic.LoadInt64(&w.nextRotationTime)
+	return logTime.Unix() >= nextRotation
+}
+
 func (w *FileWriter) Write(log RecyclableLog) error {
 	defer log.Recycle()
-	w.Lock()
-	err := w.checkIfNeedRotate(log.GetTime())
-	w.Unlock()
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "write file %s error: %s\n", w.filename, err)
+
+	// Fast path: check if rotation is needed using atomic operation (no lock)
+	logTime := log.GetTime()
+	if w.needsRotation(logTime) {
+		// Slow path: acquire lock only when rotation is actually needed
+		w.Lock()
+		// Double-check after acquiring lock (another goroutine might have rotated)
+		if w.needsRotation(logTime) {
+			err := w.checkIfNeedRotate(logTime)
+			if err != nil {
+				w.Unlock()
+				_, _ = fmt.Fprintf(os.Stderr, "write file %s error: %s\n", w.filename, err)
+			} else {
+				w.Unlock()
+			}
+		} else {
+			w.Unlock()
+		}
 	}
-	_, err = w.file.Write(log.GetContent())
+
+	_, err := w.file.Write(log.GetContent())
 	return err
 }
 
